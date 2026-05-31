@@ -305,6 +305,48 @@ function loadDatabase() {
     };
   }
 
+  // Backfill billing / sublicense configurations
+  Object.keys(db.facilities).forEach((facId, idx) => {
+    const f = db.facilities[facId];
+    if (f.athleteMonthlyPrice === undefined) {
+      f.athleteMonthlyPrice = facId === "prime-arm-lab" ? 149 : facId === "pinnacle-pitching" ? 139 : 129;
+    }
+    if (f.mimbleRoyaltyPercentage === undefined) {
+      f.mimbleRoyaltyPercentage = 12; // Static or default premium royalty percentage paid to Mimble Inc.
+    }
+    if (f.billingEnabled === undefined) {
+      f.billingEnabled = true;
+    }
+    if (f.stripeConnected === undefined) {
+      f.stripeConnected = true;
+    }
+    if (!f.transactions) {
+      // Seed with highly detailed, realistic signup transactions from previous mock athletes
+      f.transactions = [
+        {
+          id: `tx-${idx}01`,
+          athleteEmail: facId === "pinnacle-pitching" ? "jake.pro@gmail.com" : "carson.kelly@gmail.com",
+          athleteName: facId === "pinnacle-pitching" ? "Jake Thompson" : "Carson Kelly",
+          amountCharged: f.athleteMonthlyPrice,
+          royaltyPercentage: f.mimbleRoyaltyPercentage,
+          royaltyPaid: Number((f.athleteMonthlyPrice * f.mimbleRoyaltyPercentage / 100).toFixed(2)),
+          date: "2026-05-28T14:22:00Z",
+          status: "Settled"
+        },
+        {
+          id: `tx-${idx}02`,
+          athleteEmail: facId === "pinnacle-pitching" ? "miller.pitch@yahoo.com" : "marcus.semen@yahoo.com",
+          athleteName: facId === "pinnacle-pitching" ? "Miller Pitcher" : "Marcus Semen",
+          amountCharged: f.athleteMonthlyPrice,
+          royaltyPercentage: f.mimbleRoyaltyPercentage,
+          royaltyPaid: Number((f.athleteMonthlyPrice * f.mimbleRoyaltyPercentage / 100).toFixed(2)),
+          date: "2026-05-29T10:15:00Z",
+          status: "Settled"
+        }
+      ];
+    }
+  });
+
   // Ensure players map exists
   if (!db.players) {
     db.players = {};
@@ -692,7 +734,7 @@ app.post("/api/players/create", (req, res) => {
       recruitingContext: recruitingContext || `Class of ${gradYear || 2028} athlete. Recruiting window opens August 1st of Junior Year.`,
       gradYear: Number(gradYear) || 2028,
       assignedFacility: facId,
-      assignedTrainer: assignedTrainer || "Coach James",
+      assignedTrainer: assignedTrainer || "Coach Michael",
       facility: facId
     },
     logs: [],
@@ -701,8 +743,29 @@ app.post("/api/players/create", (req, res) => {
     assignedWorkouts: []
   };
 
+  // Record a transaction for multi-tenant billing
+  const facility = db.facilities[facId];
+  if (facility && facility.billingEnabled) {
+    const price = facility.athleteMonthlyPrice ?? 129;
+    const royaltyPercentage = facility.mimbleRoyaltyPercentage ?? 12;
+    const royaltyAmt = Number((price * royaltyPercentage / 100).toFixed(2));
+    if (!facility.transactions) {
+      facility.transactions = [];
+    }
+    facility.transactions.push({
+      id: "tx-" + Date.now(),
+      athleteEmail: cleanEmail,
+      athleteName: name || cleanEmail.split('@')[0],
+      amountCharged: price,
+      royaltyPercentage,
+      royaltyPaid: royaltyAmt,
+      date: new Date().toISOString(),
+      status: "Succeeded"
+    });
+  }
+
   saveDatabase(db);
-  res.json({ success: true, player: db.players[cleanEmail] });
+  res.json({ success: true, player: db.players[cleanEmail], facilities: db.facilities });
 });
 
 // API: Bulk import players via CSV
@@ -947,26 +1010,66 @@ app.post("/api/facilities/:id", (req, res) => {
 // API: Shift athlete to specific facility context (Demo simulation)
 app.post("/api/player/change-facility", (req, res) => {
   const db = loadDatabase();
-  const { email, facilityId } = req.body;
+  const { email, facilityId, name, assignedTrainer } = req.body;
 
   if (!email || !facilityId) {
     return res.status(400).json({ error: "Missing required attributes email and facilityId" });
   }
 
   const cleanEmail = email.toLowerCase().trim();
+  const resolvedFac = facilityId.toLowerCase().trim();
+
+  let player;
   if (db.players[cleanEmail]) {
-    db.players[cleanEmail].facility = facilityId;
-    if (db.players[cleanEmail].profile) {
-      db.players[cleanEmail].profile.facility = facilityId;
+    player = db.players[cleanEmail];
+    player.facility = resolvedFac;
+    if (!player.profile) {
+      player.profile = {};
     }
-    saveDatabase(db);
-    res.json({ success: true, player: db.players[cleanEmail] });
+    player.profile.facility = resolvedFac;
+    player.profile.assignedFacility = resolvedFac;
+    if (name) player.profile.name = name;
+    if (assignedTrainer) player.profile.assignedTrainer = assignedTrainer;
   } else {
-    // Create new context automatically inside this facility
-    const player = getOrCreatePlayer(db, cleanEmail, undefined, facilityId);
-    saveDatabase(db);
-    res.json({ success: true, player });
+    // Create new player context automatically inside this facility
+    player = getOrCreatePlayer(db, cleanEmail, name, resolvedFac);
+    if (!player.profile) {
+      player.profile = {};
+    }
+    player.profile.assignedFacility = resolvedFac;
+    if (assignedTrainer) {
+      player.profile.assignedTrainer = assignedTrainer;
+    }
   }
+
+  // Record a transaction for multi-tenant billing
+  const facility = db.facilities[resolvedFac];
+  if (facility && facility.billingEnabled) {
+    const price = facility.athleteMonthlyPrice ?? 129;
+    const royaltyPercentage = facility.mimbleRoyaltyPercentage ?? 12;
+    const royaltyAmt = Number((price * royaltyPercentage / 100).toFixed(2));
+    if (!facility.transactions) {
+      facility.transactions = [];
+    }
+    
+    // Check if athlete already billed to avoid dual logging
+    const alreadyBilled = facility.transactions.some((tx: any) => tx.athleteEmail.toLowerCase() === cleanEmail);
+    if (!alreadyBilled) {
+      facility.transactions.push({
+        id: "tx-" + Date.now(),
+        athleteEmail: cleanEmail,
+        athleteName: player.profile.name || cleanEmail.split('@')[0],
+        amountCharged: price,
+        royaltyPercentage,
+        royaltyPaid: royaltyAmt,
+        date: new Date().toISOString(),
+        status: "Succeeded"
+      });
+    }
+  }
+
+  saveDatabase(db);
+  res.json({ success: true, player, facilities: db.facilities });
 });
 
 // API: Get daily reminder settings

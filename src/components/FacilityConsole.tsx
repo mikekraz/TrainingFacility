@@ -1,5 +1,5 @@
-import { useState, FormEvent } from 'react';
-import { ShieldCheck, Palette, Sparkles, Building2, UserPlus, RefreshCw, Layers, Check, Globe, UserCheck, Edit2, Trash2, Key, Mail, Lock } from 'lucide-react';
+import { useState, FormEvent, useEffect } from 'react';
+import { ShieldCheck, Palette, Sparkles, Building2, UserPlus, RefreshCw, Layers, Check, Globe, UserCheck, Edit2, Trash2, Key, Mail, Lock, CreditCard, Percent, TrendingUp, Coins, Users, Settings2, ExternalLink } from 'lucide-react';
 import { Facility, Trainer } from '../types';
 
 interface FacilityConsoleProps {
@@ -8,7 +8,7 @@ interface FacilityConsoleProps {
   onSwitchFacility: (id: string) => void;
   onUpdateFacility: (id: string, updated: Partial<Facility>) => Promise<void>;
   onCreateFacility: (newFac: Omit<Facility, 'id'>) => Promise<void>;
-  onRegisterDemoPlayer: (email: string, name: string) => Promise<void>;
+  onRegisterDemoPlayer: (email: string, name: string, trainer?: string) => Promise<void>;
   isCoach: boolean;
   getAccentClass: (type: 'bg' | 'text' | 'border' | 'hoverBg' | 'focusRing' | 'badge') => string;
 }
@@ -40,6 +40,26 @@ export default function FacilityConsole({
   const [accentColor, setAccentColor] = useState<any>(activeFacility.accentColor);
   const [primaryColor, setPrimaryColor] = useState(activeFacility.primaryColor);
 
+  // State for billing and sublicense configuration
+  const [athleteMonthlyPrice, setAthleteMonthlyPrice] = useState((activeFacility as any).athleteMonthlyPrice ?? 129);
+  const [mimbleRoyaltyPercentage, setMimbleRoyaltyPercentage] = useState((activeFacility as any).mimbleRoyaltyPercentage ?? 12);
+  const [billingEnabled, setBillingEnabled] = useState((activeFacility as any).billingEnabled ?? true);
+  const [stripeConnected, setStripeConnected] = useState((activeFacility as any).stripeConnected ?? true);
+  const [savingBilling, setSavingBilling] = useState(false);
+
+  // Sync inputs when active facility changes
+  useEffect(() => {
+    setName(activeFacility.name);
+    setLogoText(activeFacility.logoText || "");
+    setWelcomeMessage(activeFacility.welcomeMessage || "");
+    setAccentColor(activeFacility.accentColor || "teal");
+    setPrimaryColor(activeFacility.primaryColor || "#0f766e");
+    setAthleteMonthlyPrice((activeFacility as any).athleteMonthlyPrice ?? 129);
+    setMimbleRoyaltyPercentage((activeFacility as any).mimbleRoyaltyPercentage ?? 12);
+    setBillingEnabled((activeFacility as any).billingEnabled ?? true);
+    setStripeConnected((activeFacility as any).stripeConnected ?? true);
+  }, [activeFacilityId, activeFacility]);
+
   // State for registering new facilities
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newFacName, setNewFacName] = useState('');
@@ -49,6 +69,7 @@ export default function FacilityConsole({
   // State for adding athlete to current facility
   const [newPlayerEmail, setNewPlayerEmail] = useState('');
   const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerTrainer, setNewPlayerTrainer] = useState('');
 
   // Form states for creating a new trainer
   const [trainerFirstName, setTrainerFirstName] = useState('');
@@ -95,6 +116,24 @@ export default function FacilityConsole({
     }
   };
 
+  const handleSaveBilling = async (e: FormEvent) => {
+    e.preventDefault();
+    setSavingBilling(true);
+    try {
+      await onUpdateFacility(activeFacilityId, {
+        athleteMonthlyPrice: Number(athleteMonthlyPrice),
+        mimbleRoyaltyPercentage: Number(mimbleRoyaltyPercentage),
+        billingEnabled,
+        stripeConnected
+      });
+      triggerMessage("White-label payment settings & sublicense royalty policies updated!", "success");
+    } catch (err) {
+      triggerMessage("Failed to update white-label payment configurations.", "error");
+    } finally {
+      setSavingBilling(false);
+    }
+  };
+
   const handleCreateFacility = async (e: FormEvent) => {
     e.preventDefault();
     if (!newFacName.trim()) return;
@@ -124,9 +163,10 @@ export default function FacilityConsole({
     if (!newPlayerEmail.trim() || !newPlayerName.trim()) return;
     setSubmittingPlayer(true);
     try {
-      await onRegisterDemoPlayer(newPlayerEmail, newPlayerName);
+      await onRegisterDemoPlayer(newPlayerEmail, newPlayerName, newPlayerTrainer || undefined);
       setNewPlayerEmail('');
       setNewPlayerName('');
+      setNewPlayerTrainer('');
       triggerMessage(`Athlete ${newPlayerName} added and assigned to isolated tenant ${activeFacility.name}!`, "success");
     } catch (err) {
       triggerMessage("Failed to associate athlete to facility.", "error");
@@ -435,7 +475,7 @@ export default function FacilityConsole({
               Register a new athlete strictly under the <strong className="text-slate-200">{activeFacility.name}</strong> tenant segment. This athlete will be assigned to this facility ID and will be invisible to all other academies or facilities on the platform.
             </p>
 
-            <form onSubmit={handleRegisterPlayer} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <form onSubmit={handleRegisterPlayer} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
               <div className="space-y-1.5">
                 <label className="text-xs text-slate-400 font-mono" htmlFor="athl-reg-name">Athlete Full Name</label>
                 <input
@@ -462,6 +502,35 @@ export default function FacilityConsole({
                 />
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs text-slate-400 font-mono" htmlFor="athl-reg-trainer">Assign Coach / Trainer</label>
+                <select
+                  id="athl-reg-trainer"
+                  value={newPlayerTrainer}
+                  onChange={(e) => setNewPlayerTrainer(e.target.value)}
+                  className="w-full text-xs bg-slate-900 border border-slate-850 text-slate-200 rounded-lg p-2 focus:outline-none focus:border-slate-700 h-[34px] cursor-pointer font-sans"
+                >
+                  <option value="">-- Choose Coach / Trainer --</option>
+                  {activeFacility.trainers && activeFacility.trainers.length > 0 && (
+                    <optgroup label={`${activeFacility.name} Staff`}>
+                      {activeFacility.trainers.map((t: any, idx: number) => {
+                        const valueText = typeof t === 'string' ? t : `Coach ${t.firstName} ${t.lastName}`;
+                        return (
+                          <option key={idx} value={valueText}>
+                            {valueText}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+                  <optgroup label="Default System Staff">
+                    <option value="Coach Michael">Coach Michael (Performance Lead)</option>
+                    <option value="Coach James">Coach James (Workload Analyst)</option>
+                    <option value="Coach Tyler">Coach Tyler (Driveline Specialist)</option>
+                  </optgroup>
+                </select>
+              </div>
+
               <div>
                 <button
                   type="submit"
@@ -473,6 +542,274 @@ export default function FacilityConsole({
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Sublicense & Whitelabeled Pricing Model Card */}
+          <div className="bg-slate-950 border border-slate-900 rounded-xl p-6 space-y-6" id="whitelabel-sublicense-hub">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+              <h2 className="text-sm font-semibold text-slate-300 font-mono flex items-center gap-2">
+                <CreditCard size={16} className={getAccentClass('text')} />
+                White-Label Subscription & Mimble, Inc. Sublicense Hub
+              </h2>
+              <span className="text-[10px] text-amber-400 font-mono tracking-wider">MIMBLE PARTNER PORTAL</span>
+            </div>
+
+            <p className="text-slate-400 text-xs leading-relaxed font-sans">
+              Set customized registration fees for athletic clients joining <strong className="text-slate-200">{activeFacility.name}</strong>. Mimble, Inc. distributes sublicense privileges under a secure royalty split structure (defaulting to 12.0%). When new pitchers or hitters are provisioned above, credit charges flow into this audit trail instantly.
+            </p>
+
+            {/* Financial Ledger KPIs */}
+            {(() => {
+              const transactions = (activeFacility as any).transactions || [];
+              const totalSignups = transactions.length;
+              const grossRevenue = transactions.reduce((sum: number, tx: any) => sum + (tx.amountCharged || 0), 0);
+              const mimbleRoyaltyTotal = transactions.reduce((sum: number, tx: any) => sum + (tx.royaltyPaid || 0), 0);
+              const netEarnings = grossRevenue - mimbleRoyaltyTotal;
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" id="billing-ledger-kpis">
+                  {/* Gross Revenue KPI */}
+                  <div className="bg-slate-900/45 border border-slate-900 rounded-xl p-4 space-y-2 relative overflow-hidden">
+                    <div className="absolute right-2 bottom-2 text-slate-950 opacity-10 animate-pulse">
+                      <TrendingUp size={64} />
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">Customer Gross Revenue</span>
+                    <h3 className="text-xl font-bold text-white font-mono flex items-baseline gap-1">
+                      ${grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className="text-[10.5px] text-slate-500 font-normal font-sans">USD</span>
+                    </h3>
+                    <div className="flex items-center gap-1.5 text-[10.5px] text-emerald-400 font-mono">
+                      <span>● ACTIVE CHARGES ({totalSignups})</span>
+                    </div>
+                  </div>
+
+                  {/* Mimble Inc Sublicense Fee KPI */}
+                  <div className="bg-slate-900/45 border border-slate-900 rounded-xl p-4 space-y-2 relative overflow-hidden">
+                    <div className="absolute right-2 bottom-2 text-slate-950 opacity-10">
+                      <Percent size={64} />
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">Mimble, Inc Sublicense Split</span>
+                    <h3 className="text-xl font-bold font-mono text-amber-400 flex items-baseline gap-1">
+                      -${mimbleRoyaltyTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className="text-[10.5px] text-amber-500 font-normal font-sans">USD</span>
+                    </h3>
+                    <div className="flex items-center gap-1 text-[10.5px] text-slate-500 font-mono">
+                      <span>Rate: {mimbleRoyaltyPercentage}% Sublicense Cut</span>
+                    </div>
+                  </div>
+
+                  {/* Net Profit KPI */}
+                  <div className="bg-slate-900/45 border border-slate-900 rounded-xl p-4 space-y-2 relative overflow-hidden">
+                    <div className="absolute right-2 bottom-2 text-slate-950 opacity-10">
+                      <Coins size={64} />
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">Facility Net Income</span>
+                    <h3 className="text-xl font-bold font-mono text-emerald-400 flex items-baseline gap-1">
+                      ${netEarnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className="text-[10.5px] text-emerald-500 font-normal font-sans">USD</span>
+                    </h3>
+                    <div className="flex items-center gap-1.5 text-[10.5px] text-slate-500 font-mono">
+                      <span>Keep {100 - mimbleRoyaltyPercentage}% of Athlete Flow</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Interactive Billing & Royalty Config Controls Form */}
+            <form onSubmit={handleSaveBilling} className="bg-slate-900/25 border border-slate-900 rounded-xl p-5 space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Sliders Block */}
+                <div className="space-y-4">
+                  {/* Price Setting */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
+                        Athlete Subscription Price (USD)
+                      </label>
+                      <span className="text-xs font-bold text-emerald-400 font-mono font-black bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-900/50">
+                        ${athleteMonthlyPrice} / month
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="49"
+                      max="299"
+                      step="5"
+                      value={athleteMonthlyPrice}
+                      onChange={(e) => setAthleteMonthlyPrice(Number(e.target.value))}
+                      className="w-full accent-emerald-500 h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <p className="text-[10px] text-slate-500 font-sans">
+                      Standard pricing charged automatically to the student athlete profile upon platform onboarding.
+                    </p>
+                  </div>
+
+                  {/* Royalty Split slider simulation */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
+                        Mimble, Inc. Sublicense Royalty Rate
+                      </label>
+                      <span className="text-xs font-bold text-amber-400 font-mono font-black bg-amber-950/40 px-2 py-0.5 rounded border border-amber-900/50">
+                        {mimbleRoyaltyPercentage}% rate
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="30"
+                      step="1"
+                      value={mimbleRoyaltyPercentage}
+                      onChange={(e) => setMimbleRoyaltyPercentage(Number(e.target.value))}
+                      className="w-full accent-amber-500 h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <p className="text-[10px] text-slate-500 font-sans">
+                      Standard contractual sublicense fee allocated to Mimble, Inc per corporate agreement.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Gateway Toggles block */}
+                <div className="space-y-4 pt-1 bg-slate-950/60 p-4 border border-slate-900 rounded-xl">
+                  {/* Hook stripe toggle */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5 max-w-xs">
+                      <span className="text-[11px] font-bold text-slate-300 block font-mono">Simulate Stripe Payments</span>
+                      <p className="text-[10px] text-slate-500 font-sans">
+                        Authorize automated credit card charges directly to the athlete&apos;s balance.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={stripeConnected} 
+                        onChange={(e) => setStripeConnected(e.target.checked)}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-9 h-5 bg-slate-900 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500/80"></div>
+                    </label>
+                  </div>
+
+                  {/* Billing switch toggle */}
+                  <div className="flex items-center justify-between gap-4 pt-3 border-t border-slate-900">
+                    <div className="space-y-0.5 max-w-xs">
+                      <span className="text-[11px] font-bold text-slate-300 block font-mono">Platform Billing Process</span>
+                      <p className="text-[10px] text-slate-500 font-sans">
+                        Toggles actual sublicense royalty logging and transaction recording on the platform.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={billingEnabled} 
+                        onChange={(e) => setBillingEnabled(e.target.checked)}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-9 h-5 bg-slate-900 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-500/80"></div>
+                    </label>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Form submit button */}
+              <div className="border-t border-slate-900 pt-3 flex justify-between items-center gap-4">
+                <span className="text-[10px] text-slate-500 font-sans leading-relaxed">
+                  Saving updates propagates athletic client pricing to the platform ledger instantly, adjusting the corporate royalty outflow.
+                </span>
+                
+                <button
+                  type="submit"
+                  disabled={savingBilling}
+                  className={`px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black tracking-widest uppercase rounded-lg transition-all flex items-center gap-1.5 shrink-0`}
+                >
+                  {savingBilling ? (
+                    <>
+                      <RefreshCw className="animate-spin" size={12} />
+                      Syncing Policies...
+                    </>
+                  ) : (
+                    <>
+                      <Settings2 size={12} />
+                      Apply Sublicense Policies
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+
+            {/* Audited Signup Transaction Ledger (Ledger List) */}
+            <div className="space-y-3 bg-slate-900/10 border border-slate-900 rounded-xl p-4">
+              <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                <span className="text-[10.5px] font-mono text-slate-400 font-black uppercase flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Corporate Sublicense Split Log Ledger
+                </span>
+                <span className="text-[9px] text-slate-500 font-mono">LEDGER ID: MIMBLE_AUDIT_LNK_01</span>
+              </div>
+
+              {(() => {
+                const transactions = (activeFacility as any).transactions || [];
+                if (transactions.length === 0) {
+                  return (
+                    <div className="text-center py-6 text-xs text-slate-550 italic font-sans">
+                      No customer signup credit card events processed yet under this tenant.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left text-slate-300">
+                      <thead>
+                        <tr className="border-b border-slate-900/60 text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+                          <th className="py-2 text-[10px] font-black font-mono">Date / Time</th>
+                          <th className="py-2 text-[10px] font-black font-mono">Client Athlete</th>
+                          <th className="py-2 text-[10px] font-black font-mono text-right">Charged Fee</th>
+                          <th className="py-2 text-[10px] font-black font-mono text-right">Mimble royalty ({mimbleRoyaltyPercentage}%)</th>
+                          <th className="py-2 text-[10px] font-black font-mono text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="font-sans">
+                        {transactions.slice().reverse().map((tx: any, i: number) => {
+                          const dateObj = new Date(tx.date);
+                          const formattedDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                          // Recalculate based on currently active slider percentage to demonstrate interactive high-fidelity simulation!
+                          const activeRoyaltyPercentage = mimbleRoyaltyPercentage;
+                          const activeRoyaltyAmount = Number((tx.amountCharged * activeRoyaltyPercentage / 100).toFixed(2));
+
+                          return (
+                            <tr key={tx.id || i} className="border-b border-slate-900/40 last:border-b-0 hover:bg-slate-900/20 transition-all font-sans text-xs">
+                              <td className="py-2.5 text-slate-400 font-mono text-[10.5px] font-semibold">{formattedDate}</td>
+                              <td className="py-2.5">
+                                <div className="font-semibold text-slate-200">{tx.athleteName}</div>
+                                <div className="text-[10px] text-slate-500 font-mono leading-none">{tx.athleteEmail}</div>
+                              </td>
+                              <td className="py-2.5 text-right font-mono font-bold text-slate-200">
+                                ${tx.amountCharged?.toFixed(2)}
+                              </td>
+                              <td className="py-2.5 text-right font-mono text-amber-400 font-bold">
+                                -${activeRoyaltyAmount.toFixed(2)}
+                              </td>
+                              <td className="py-2.5 text-center">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-950 border border-emerald-500/20 text-emerald-400 font-mono leading-none">
+                                  <Check size={9} />
+                                  {tx.status || 'Settled'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
           </div>
 
           {/* Designate Facility Coaches & Trainers section */}

@@ -189,14 +189,18 @@ export default function App() {
   };
 
   // Enroll demo athletes under isolated facility database
-  const handleRegisterDemoPlayer = async (email: string, name: string) => {
+  const handleRegisterDemoPlayer = async (email: string, name: string, trainer?: string) => {
     try {
       const resp = await fetch('/api/player/change-facility', {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ email, facilityId: selectedFacilityId })
+        body: JSON.stringify({ email, facilityId: selectedFacilityId, name, assignedTrainer: trainer })
       });
       if (resp.ok) {
+        const payload = await resp.json();
+        if (payload.facilities) {
+          setFacilities(payload.facilities);
+        }
         await loadData(email, selectedFacilityId);
       }
     } catch (err) {
